@@ -1,0 +1,97 @@
+# Local dev / integration-test infrastructure for Milona (ROADMAP.md Phase 6 hardening).
+#
+# Usage:
+#   docker compose up -d mongodb        # start just Mongo (default, matches CI)
+#   docker compose --profile neo4j up -d  # also start the Neo4j fallback (see below)
+#   docker compose down -v              # tear down + wipe volumes
+#
+# `mongodb` is a single-node replica set, not a plain standalone `mongo` container. A
+# replica set is *required* (not optional) to exercise:
+#   - `$vectorSearch` (Atlas-style vector search stages)
+#   - `$graphLookup` recursive graph traversal (adjacency-list `GraphStore` impl)
+#   - change streams (used for any reactive re-indexing / audit-log tailing)
+# per ROADMAP.md Phase 2's testing note. A standalone node silently fails or errors on
+# some of these, which is the kind of gap ROADMAP.md's Phase 2 wants caught in CI/local
+# dev rather than discovered in staging.
+#
+# `MONGODB_URI` for locally-run tests against this stack:
+#   mongodb://localhost:27017/?directConnection=true&replicaSet=rs0
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: milona-mongodb
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - milona-mongodb-data:/data/db
+    healthcheck:
+      test: >
+        mongosh --quiet --eval
+        "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]}).ok }"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  # One-shot helper that initiates the replica set on first boot and then exits. The
+  # healthcheck above is also self-healing (re-attempts rs.initiate on every check until
+  # it succeeds), so this is redundant-but-fast: it gets the replica set to PRIMARY in a
+  # couple of seconds instead of waiting for the first healthcheck interval.
+  mongodb-init:
+    image: mongo:7
+    depends_on:
+      - mongodb
+    entrypoint: >
+      bash -c "
+        until mongosh --host mongodb --quiet --eval 'db.adminCommand({ping:1})'; do sleep 1; done;
+        mongosh --host mongodb --quiet --eval
+          \"try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongodb:27017'}]}) }\"
+      "
+    restart: "no"
+
+  # --- Phase 6 graph fallback (documented, not started by default) ---------------------
+  #
+  # ROADMAP.md Key Risk #1/#7 and Phase 6: `$graphLookup` is not viable on DocumentDB, and
+  # even on real MongoDB/Atlas it may hit traversal-depth/perf ceilings the adjacency-list
+  # model can't clear. When that happens, the `GraphStore` trait (milona-core) gets a
+  # `neo4rs`-backed implementation instead of the Mongo adjacency-list one — budgeted as a
+  # full data re-modeling project, not a config flip (labeled property graph vs. adjacency
+  # list documents are different shapes).
+  #
+  # This service is opt-in via the `neo4j` compose profile so day-to-day `docker compose up`
+  # (matching what CI's Mongo-only service container does) doesn't pay for a JVM you don't
+  # need yet:
+  #   docker compose --profile neo4j up -d neo4j
+  #
+  # Bolt URI for a `neo4rs`-backed GraphStore impl once Phase 6 lands it:
+  #   bolt://localhost:7687  (user: neo4j, password: see NEO4J_AUTH below — change it)
+  #
+  # Note: Neo4j *clustering* (for HA, per ROADMAP.md Phase 0.5 "High availability") is an
+  # Enterprise-licensed feature — this service is Community edition, single instance, for
+  # local dev/integration tests only. Factor Enterprise licensing cost into the Phase 6
+  # go/no-go before depending on clustered Neo4j in production.
+  neo4j:
+    image: neo4j:5-community
+    container_name: milona-neo4j
+    profiles: ["neo4j"]
+    environment:
+      NEO4J_AUTH: neo4j/milona-dev-password
+      NEO4J_PLUGINS: "[]"
+    ports:
+      - "7474:7474" # HTTP browser console
+      - "7687:7687" # Bolt (neo4rs connects here)
+    volumes:
+      - milona-neo4j-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  milona-mongodb-data:
+  milona-neo4j-data:

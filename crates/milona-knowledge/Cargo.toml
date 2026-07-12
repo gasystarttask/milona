@@ -8,8 +8,14 @@ rust-version.workspace = true
 [dependencies]
 milona-core.workspace = true
 milona-storage.workspace = true
+milona-tools.workspace = true
+milona-adapter.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+uuid.workspace = true

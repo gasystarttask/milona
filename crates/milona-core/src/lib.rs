@@ -8,6 +8,6 @@ pub use document::{Chunk, ChunkId, DocumentId, RawDocument, SourceKind, TrustLab
 pub use error::CoreError;
 pub use tenant::{Role, TenantContext, TenantId};
 pub use traits::{
-    Chunker, DocumentSource, Embedder, GraphEdge, GraphStore, LlmMessage, LlmProvider,
-    LlmResponse, MessageRole, Tool, ToolInvocation, ToolResult, VectorMatch, VectorStore,
+    Chunker, DocumentSource, Embedder, GraphEdge, GraphStore, LlmMessage, LlmProvider, LlmResponse,
+    MessageRole, Tool, ToolInvocation, ToolResult, VectorMatch, VectorStore,
 };

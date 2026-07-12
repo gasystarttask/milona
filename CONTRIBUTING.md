@@ -1,0 +1,132 @@
+# Contributing to Milona
+
+This document is the local mirror of what `.github/workflows/ci.yml` runs. If you can get
+a clean run through every step below, CI should pass (module network-dependent advisory
+database freshness, which can't be perfectly reproduced offline — see the note at the end).
+
+## Prerequisites
+
+- Rust via `rustup`, matching `rust-version` in the root `Cargo.toml` (currently 1.87) or
+  newer. `rustfmt` and `clippy` components installed (`rustup component add rustfmt clippy`).
+- Docker + Docker Compose, for the local MongoDB (and optional Neo4j) integration-test
+  infrastructure in `docker-compose.yml`.
+- `cargo-audit` and `cargo-deny` (see [Supply-chain scanning](#supply-chain-scanning) below
+  for exact install commands and known version-compatibility notes).
+
+## The full local validation loop
+
+Run these in order; each corresponds 1:1 to a CI job/step in `.github/workflows/ci.yml`.
+
+```bash
+# 1. Formatting
+cargo fmt --all -- --check
+
+# 2. Lints (warnings are build failures, matching CI's -D warnings)
+cargo clippy --workspace --all-targets -- -D warnings
+
+# 3. Unit + integration tests
+#    Most crates' tests use in-memory fakes and need no external services. A few
+#    Phase 2 storage integration tests are Docker-gated (see below) or #[ignore]-gated.
+cargo test --workspace
+
+# 4. Supply-chain: advisories
+cargo audit
+
+# 5. Supply-chain: licenses, bans, sources (config in ./deny.toml)
+cargo deny check
+```
+
+If all five pass locally, push/open a PR with confidence.
+
+## Local integration-test infrastructure (`docker-compose.yml`)
+
+Some Phase 2 storage tests need a real MongoDB **replica set** (not just a standalone
+instance) because `$vectorSearch`, `$graphLookup`, and change streams all require one. Start
+it with:
+
+```bash
+docker compose up -d mongodb
+# wait a few seconds for the replica set to reach PRIMARY, then:
+export MONGODB_URI="mongodb://localhost:27017/?directConnection=true&replicaSet=rs0"
+cargo test --workspace -- --ignored   # or whatever the storage crate's #[ignore] convention is
+```
+
+Tear down with `docker compose down -v` (the `-v` also drops the Mongo data volume, so you
+get a clean replica set next time).
+
+The optional Neo4j service (Phase 6 graph-layer fallback, see `docker-compose.yml`'s
+comments and ROADMAP.md Key Risk #7) is not started by default:
+
+```bash
+docker compose --profile neo4j up -d neo4j
+```
+
+## Supply-chain scanning
+
+### Installing `cargo-audit` / `cargo-deny`
+
+```bash
+cargo install cargo-audit --locked
+cargo install cargo-deny --locked
+```
+
+**Version-compatibility note observed in this sandbox:** the latest `cargo-audit`
+(0.22.x) and `cargo-deny` (0.20.x) require rustc ≥ 1.88. If your toolchain is pinned at the
+workspace's `rust-version = "1.87"`, `cargo install` will suggest an older compatible
+version (e.g. `cargo-audit 0.21.2`, `cargo-deny 0.18.3`) — that's fine for day-to-day use,
+but see the next note. CI always uses a current `stable` toolchain (via
+`dtolnay/rust-toolchain@stable`), so it runs the latest audit/deny without this constraint;
+install a matching toolchain locally (`rustup toolchain install stable`) if you want your
+local run to exactly match CI, e.g.:
+
+```bash
+rustup toolchain install 1.88.0 --profile minimal
+cargo +1.88.0 install cargo-audit --locked --force
+```
+
+**Advisory-database/CVSS-parser skew:** older `cargo-deny` builds (whose bundled
+`rustsec`/`cvss` crate predates CVSS 4.0 support) will fail to *load* the advisory database
+once it contains any CVSS 4.0-scored advisory, with an error like:
+
+```
+unsupported CVSS version: 4.0
+```
+
+This is a version-skew bug in the audit tool itself, not a finding about Milona's
+dependencies — confirmed by the fact that a `cargo-audit` build against a newer toolchain
+scans the identical `Cargo.lock` cleanly. If you hit this locally, update `cargo-deny`
+(requires the newer rustc noted above) rather than trying to work around it in
+`deny.toml`.
+
+### What `deny.toml` enforces
+
+- **Advisories**: any RUSTSEC advisory (vulnerability/unmaintained/unsound/notice) fails
+  `cargo deny check` unless explicitly (and temporarily, with an expiry) ignored.
+- **Licenses**: an allow-list of permissive licenses only (MIT, Apache-2.0, BSD, ISC,
+  Unicode-3.0/DFS-2016, Zlib, CC0-1.0, MIT-0) per ROADMAP.md's licensing note — copyleft
+  licenses (GPL/AGPL/LGPL/MPL family) are intentionally excluded, so any such dependency
+  (direct or transitive) fails the build and forces an explicit compliance review.
+- **Bans**: flags duplicate major versions of the same crate (bloat/audit-surface) as
+  warnings, and denies a couple of explicitly unwanted crates (e.g. `openssl-sys`, since the
+  workspace's recommended stack standardizes on `rustls`).
+- **Sources**: only crates.io is an allowed registry source; unknown git dependencies are
+  denied by default.
+
+## Presenter OTel tracing seam
+
+`crates/milona-presenter/src/otel.rs` is a feature-flagged (`--features otel`) seam for
+`tracing-opentelemetry` export, left intentionally inert (no collector wiring) per
+ROADMAP.md's note that the Rust OpenTelemetry tracing API/SDK is still Beta upstream. See
+the `TODO(otel)` comments in that file for what a real integration requires. Default builds
+(`cargo build`, no extra flags) are unaffected — the feature adds zero dependencies unless
+explicitly enabled.
+
+## Scope notes for this workspace
+
+- Every storage/knowledge/tool call must carry a `TenantContext`; every query filters by
+  `tenant_id` at the query/aggregation level (never as a post-filter).
+- Ingested content is untrusted data (`Chunk::trust_label`), never treated as instructions.
+- One async runtime (`tokio`) throughout; don't introduce `async-std`/`smol`.
+- Only use workspace-level dependency versions declared in the root `Cargo.toml`
+  `[workspace.dependencies]` where present; otherwise pin a version directly in the crate's
+  own `Cargo.toml`.

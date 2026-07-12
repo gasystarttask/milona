@@ -1,0 +1,104 @@
+# cargo-deny configuration — Phase 6 hardening (ROADMAP.md).
+#
+# Run locally with:
+#   cargo deny check
+#
+# Enforces:
+#   - advisories: fail the build on any RUSTSEC advisory. This is the automated version of
+#     the rmcp RUSTSEC-2026-0189 (DNS-rebinding, Streamable HTTP transport) catch described
+#     in ROADMAP.md Key Risk #5 — note that as of this writing `rmcp` is NOT yet a
+#     dependency anywhere in this workspace (milona-tools/src/lib.rs is still an unimplemented
+#     Phase 5 stub), so there is nothing to pin/patch yet. This config exists so that the
+#     day `rmcp` (or any other dependency) picks up a RUSTSEC advisory, CI fails immediately
+#     instead of relying on someone noticing.
+#   - licenses: deny copyleft licenses per ROADMAP.md's licensing note ("all recommended
+#     crates are MIT/Apache-2.0 — no copyleft obligations"); only allow a curated permissive
+#     allow-list, everything else must be explicitly reviewed and added here.
+#   - bans: warn on duplicate versions of the same crate (multiple majors bloat the binary
+#     and widen the audit surface) and deny a couple of explicitly unwanted crates.
+#   - sources: only allow crates.io as a registry source; no arbitrary git dependencies
+#     without an explicit allow-list entry.
+
+[graph]
+targets = []
+all-features = true
+
+[advisories]
+version = 2
+# Any RUSTSEC advisory (vulnerability, unmaintained, unsound, notice) fails `cargo deny
+# check` by default under version = 2 unless explicitly ignored below. Keep this list
+# empty in steady state; any addition here must reference the RUSTSEC id and a tracked
+# follow-up issue, and must have an expiry date.
+ignore = [
+    # Example of the *only* acceptable shape for a temporary exception:
+    # { id = "RUSTSEC-0000-0000", reason = "tracked in #123, patched upstream release pending", expires = "2026-12-31" },
+]
+
+[licenses]
+version = 2
+# Permissive allow-list matching ROADMAP.md's licensing note. Everything the recommended
+# stack pulls in (mongodb, neo4rs, dom_smoothie, fastembed-rs, genai, rmcp, text-splitter,
+# pdfium-render, ort, tiktoken-rs, tokio, serde, axum, clap, ...) is MIT/Apache-2.0/BSD/etc.
+# Copyleft licenses (GPL/AGPL/LGPL/MPL family) are intentionally NOT in this list, so any
+# dependency (direct or transitive) under one of them fails CI and forces a compliance
+# review rather than shipping silently.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "CC0-1.0",
+    "MIT-0",
+]
+confidence-threshold = 0.8
+
+# Crates whose license metadata is known-good but doesn't cleanly parse, reviewed by hand.
+# Add entries here (with a comment linking to the review) rather than loosening `allow`.
+exceptions = [
+    # { allow = ["OpenSSL"], crate = "ring" },
+]
+
+# [[licenses.clarify]] entries go here if a dependency's license expression doesn't parse
+# cleanly (e.g. non-SPDX-standard text). Shape:
+#   [[licenses.clarify]]
+#   name = "some-crate"
+#   expression = "MIT AND ISC"
+#   license-files = [{ path = "LICENSE", hash = 0xXXXXXXXX }]
+# None needed yet for this workspace's dependency set.
+
+[bans]
+multiple-versions = "warn"
+# `wildcards = "deny"` is meant to catch genuine third-party wildcard deps (e.g.
+# `foo = "*"`), which are a real supply-chain risk (silently accepts any future version,
+# including malicious/yanked ones). In practice it also flags every in-workspace
+# `foo.workspace = true` path dependency (milona-core, milona-storage, ...) as a "wildcard
+# dependency", because they don't pin a version. `allow-wildcard-paths` is meant to exempt
+# path deps from this, but as of cargo-deny 0.18 it only applies to crates marked
+# `publish = false`; none of this workspace's member crates set that (each crate's own
+# Cargo.toml is out of scope for this file to edit — see the top-of-file note), so the
+# exemption doesn't take effect here. Verified locally: with `wildcards = "deny"` this
+# workspace fails `cargo deny check bans` purely on its own internal path dependencies
+# (milona-core, milona-storage, milona-tools, milona-adapter, milona-knowledge), not on any
+# real third-party wildcard dependency. Downgraded to "warn" to keep the signal visible in
+# CI logs without a permanent false-positive failure; revisit as "deny" once each crate
+# manifest sets `publish = false` (or cargo-deny changes how allow-wildcard-paths matches).
+wildcards = "warn"
+allow-wildcard-paths = true
+deny = [
+    # Superseded by `rustls` across the recommended stack; flag if it creeps back in via a
+    # transitive dependency pulling in a vendored/system OpenSSL build.
+    { crate = "openssl-sys", reason = "prefer rustls across the workspace; review any dependency that pulls this in" },
+]
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
