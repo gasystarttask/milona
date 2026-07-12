@@ -1,0 +1,19 @@
+[package]
+name = "milona-presenter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "milona"
+path = "src/main.rs"
+
+[dependencies]
+milona-core.workspace = true
+milona-knowledge.workspace = true
+milona-adapter.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true

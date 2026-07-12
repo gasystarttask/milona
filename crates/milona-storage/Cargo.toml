@@ -1,0 +1,15 @@
+[package]
+name = "milona-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+milona-core.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true

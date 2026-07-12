@@ -1,0 +1,15 @@
+[package]
+name = "milona-knowledge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+milona-core.workspace = true
+milona-storage.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
