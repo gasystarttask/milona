@@ -1,5 +1,7 @@
 # Milona
 
+[![CI](https://github.com/gasystarttask/milona/actions/workflows/ci.yml/badge.svg)](https://github.com/gasystarttask/milona/actions/workflows/ci.yml)
+
 A model-agnostic GenAI application: ingest documents, store them as both a knowledge graph
 and vector embeddings, and query them through a tenant-isolated API/CLI backed by a
 swappable LLM adapter. See [ARCHITECTURE.md](ARCHITECTURE.md) for the design and
