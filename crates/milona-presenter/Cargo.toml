@@ -20,6 +20,8 @@ otel = []
 milona-core.workspace = true
 milona-knowledge.workspace = true
 milona-adapter.workspace = true
+milona-storage.workspace = true
+milona-tools.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -34,6 +36,28 @@ clap = { version = "4", features = ["derive"] }
 governor = "0.10"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace"] }
+
+# Only used to construct a `mongodb::Client` for the optional
+# `MILONA_STORAGE_BACKEND=mongo` composition-root path (src/state.rs);
+# `milona-storage` owns the actual `VectorStore`/`GraphStore` query logic.
+# Pinned identically to `milona-storage`'s own pin: mongodb>=3.7 transitively
+# requires rustc>=1.88 (darling 0.23/serde_with 3.21/time 0.3.53), and this
+# workspace pins rust-version = 1.87. Re-evaluate together with
+# milona-storage's pin once the workspace MSRV moves to >=1.88.
+mongodb = { version = "=3.6.0", default-features = false, features = [
+    "rustls-tls",
+    "bson-2",
+    "compat-3-3-0",
+] }
+
+[dependencies.darling]
+version = "=0.20.11"
+
+[dependencies.serde_with]
+version = "=3.9.0"
+
+[dependencies.time]
+version = "=0.3.36"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

@@ -17,7 +17,7 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Command::Serve { addr } => {
-            let (state, dev_key) = build_serve_state();
+            let (state, dev_key) = build_serve_state().await?;
             if let Some(dev_key) = dev_key {
                 tracing::warn!(
                     api_key = %dev_key,

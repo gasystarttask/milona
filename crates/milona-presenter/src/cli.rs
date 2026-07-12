@@ -60,11 +60,15 @@ pub async fn run_query_command(
 /// falling back to a single generated development key logged at startup so
 /// the server is still usable out of the box in local/dev environments
 /// without silently shipping unauthenticated.
-pub fn build_serve_state() -> (AppState, Option<String>) {
+///
+/// Storage backend selection is delegated to
+/// `AppState::new_from_env`: the safe in-memory default unless
+/// `MILONA_STORAGE_BACKEND=mongo` is set (see that function's doc comment).
+pub async fn build_serve_state() -> anyhow::Result<(AppState, Option<String>)> {
     match std::env::var("MILONA_API_KEYS") {
         Ok(raw) if !raw.trim().is_empty() => {
             let keys = parse_api_keys(&raw);
-            (AppState::new_default(keys), None)
+            Ok((AppState::new_from_env(keys).await?, None))
         }
         _ => {
             let dev_key = uuid::Uuid::new_v4().to_string();
@@ -78,7 +82,7 @@ pub fn build_serve_state() -> (AppState, Option<String>) {
                     subject: "dev".to_string(),
                 },
             );
-            (AppState::new_default(keys), Some(dev_key))
+            Ok((AppState::new_from_env(keys).await?, Some(dev_key)))
         }
     }
 }

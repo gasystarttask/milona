@@ -10,6 +10,39 @@ milona-core.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
+uuid.workspace = true
+futures-util = "0.3"
+
+# The official MongoDB driver. Pinned to 3.6.0 (rather than the crates.io
+# `latest` of 3.8.0) because mongodb>=3.7 transitively pulls in
+# darling 0.23 / serde_with 3.21 / time 0.3.53, all of which require
+# rustc>=1.88 — this workspace pins rust-version = 1.87 (see
+# milona-adapter's Cargo.toml/src/lib.rs for the same conflict, already
+# documented there for the `genai` crate). 3.6.0 plus a few transitive
+# `=` pins below is the newest combination that still compiles on 1.87.
+# `compat-3-3-0` is mongodb's own forward-compat opt-in, required since
+# 3.4-ish; `bson-2` selects the bson 2.x series matching this driver line.
+# Re-evaluate this whole pin block once the workspace's MSRV moves to
+# >=1.88 and drop it in favor of a plain `mongodb = "3"`.
+mongodb = { version = "=3.6.0", default-features = false, features = [
+    "rustls-tls",
+    "bson-2",
+    "compat-3-3-0",
+] }
+bson = "2.15"
+
+[dependencies.darling]
+version = "=0.20.11"
+
+[dependencies.serde_with]
+version = "=3.9.0"
+
+[dependencies.time]
+version = "=0.3.36"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

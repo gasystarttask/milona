@@ -13,3 +13,27 @@ serde.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
+
+# Pinned to 0.9 (not the latest 0.12): pdf-extract >=0.10 pulls a `lopdf`
+# version that uses `let`-chains, requiring rustc >= 1.88. The workspace
+# pins rust-version = 1.87 (same MSRV conflict already documented for
+# `genai`/darling in milona-adapter), so we stay on the last version whose
+# transitive `lopdf` dependency compiles on 1.87.
+pdf-extract = "0.9"
+text-splitter = "0.29"
+reqwest = "0.13"
+# Pinned to 0.23 (not the latest 0.27): scraper >=0.24 relies on `html5ever`/
+# internal code using `if let` chains, requiring rustc >= 1.88 — same MSRV
+# conflict as pdf-extract/lopdf above. 0.23 is the newest version that still
+# builds cleanly on this workspace's pinned rustc 1.87.
+scraper = "0.23"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }
+uuid.workspace = true
+# Pinned to 0.5 (not the latest 0.6): wiremock >=0.6 uses `if`-`let` chains
+# internally, requiring rustc >= 1.88 — same MSRV conflict as pdf-extract/
+# scraper above. wiremock itself has its own vendored `reqwest`/`hyper`
+# stack, independent of milona-ingest's own reqwest dependency, so the
+# version mismatch across the two is not an issue.
+wiremock = "0.5"
