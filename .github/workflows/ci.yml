@@ -53,23 +53,16 @@ jobs:
   test:
     name: test (workspace + MongoDB replica set)
     runs-on: ubuntu-latest
-    services:
-      # Single-node MongoDB replica set: required (not just nice-to-have) for
-      # $vectorSearch, $graphLookup, and change-stream integration tests per
-      # ROADMAP.md Phase 2 — a standalone `mongo:*` service does not support
-      # change streams or replica-set-only aggregation stages.
-      mongodb:
-        image: mongo:7
-        ports:
-          - 27017:27017
-        options: >-
-          --health-cmd "mongosh --eval 'db.adminCommand({ping: 1})' --quiet"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-
+    # Not using the `services:` block here: GitHub Actions' `services:` only
+    # lets you set docker-run *options* (health-cmd, ports, ...), not override
+    # the container's entrypoint args. `mongo:7`'s default entrypoint starts a
+    # plain standalone node with no way to pass `--replSet` through
+    # `services:.options`, which is exactly the "not started with replication
+    # enabled" failure this replaces. Running the container via a plain
+    # `docker run` step gives full control over its command, matching
+    # docker-compose.yml's `command: ["--replSet", "rs0", "--bind_ip_all"]`.
     env:
-      MONGODB_URI: mongodb://127.0.0.1:27017/?directConnection=true
+      MONGODB_URI: mongodb://127.0.0.1:27017/?directConnection=true&replicaSet=rs0
 
     steps:
       - uses: actions/checkout@v4
@@ -80,14 +73,24 @@ jobs:
       - name: Cache cargo registry & target dir
         uses: Swatinem/rust-cache@v2
 
-      - name: Initialize MongoDB single-node replica set
+      - name: Start MongoDB single-node replica set
         run: |
-          docker exec "$(docker ps -q --filter ancestor=mongo:7)" \
-            mongosh --quiet --eval 'rs.initiate({_id: "rs0", members: [{_id: 0, host: "127.0.0.1:27017"}]})'
+          docker run -d --name milona-mongodb -p 27017:27017 mongo:7 \
+            --replSet rs0 --bind_ip_all
+
+          # Wait for the server to accept connections before initiating.
+          for i in $(seq 1 30); do
+            docker exec milona-mongodb mongosh --quiet --eval 'db.adminCommand({ping: 1})' \
+              && break
+            sleep 1
+          done
+
+          docker exec milona-mongodb mongosh --quiet --eval \
+            'rs.initiate({_id: "rs0", members: [{_id: 0, host: "127.0.0.1:27017"}]})'
+
           # Wait for the node to become PRIMARY before tests connect.
           for i in $(seq 1 30); do
-            state=$(docker exec "$(docker ps -q --filter ancestor=mongo:7)" \
-              mongosh --quiet --eval 'rs.status().myState' || echo 0)
+            state=$(docker exec milona-mongodb mongosh --quiet --eval 'rs.status().myState' || echo 0)
             [ "$state" = "1" ] && break
             sleep 1
           done
