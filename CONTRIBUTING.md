@@ -36,7 +36,9 @@ cargo audit
 cargo deny check
 ```
 
-If all five pass locally, push/open a PR with confidence.
+If all five pass locally, open a PR with confidence (see
+[Branch and tag protection](#branch-and-tag-protection) below — direct pushes to `main` are
+rejected, so this is required, not optional).
 
 ## Local integration-test infrastructure (`docker-compose.yml`)
 
@@ -48,8 +50,13 @@ it with:
 docker compose up -d mongodb
 # wait a few seconds for the replica set to reach PRIMARY, then:
 export MONGODB_URI="mongodb://localhost:27017/?directConnection=true&replicaSet=rs0"
-cargo test --workspace -- --ignored   # or whatever the storage crate's #[ignore] convention is
+cargo test -p milona-storage --test mongo_integration -- --ignored --test-threads=1
 ```
+
+One of these (`vector_search_is_tenant_scoped_against_atlas`) stays `#[ignore]`d even with
+the replica set running: self-hosted MongoDB doesn't support `$vectorSearch` at all — it
+needs a real Atlas cluster with a `$vectorSearch` index named `milona_vector_index`. The
+other three only need the local replica set above.
 
 Tear down with `docker compose down -v` (the `-v` also drops the Mongo data volume, so you
 get a clean replica set next time).
@@ -98,14 +105,48 @@ scans the identical `Cargo.lock` cleanly. If you hit this locally, update `cargo
 (requires the newer rustc noted above) rather than trying to work around it in
 `deny.toml`.
 
+### Two separate config files — keep them in sync
+
+`cargo audit` (and the `rustsec/audit-check` GitHub Action CI uses, which shells out to it)
+reads **`.cargo/audit.toml`** only. `cargo deny check` reads **`deny.toml`** only — it does
+not read `.cargo/audit.toml`. Any advisory-ignore decision must be added to *both* files
+with matching ids and reasoning, or one tool will still fail even after the other passes.
+
+### What's currently ignored, and why
+
+Two real vulnerabilities and four warnings are ignored in both files (each dated for review
+by **2026-10-01**):
+
+| ID | Crate | Why it's ignored |
+|---|---|---|
+| `RUSTSEC-2026-0187` | `lopdf` (via `pdf-extract`, `milona-ingest`) | Fix (`lopdf >= 0.42`) transitively requires `rustc >= 1.88`; workspace pins 1.87 |
+| `RUSTSEC-2026-0009` | `time` (pinned `=0.3.36` in `milona-storage`, itself required by `mongodb`'s MSRV) | Fix (`time >= 0.3.47`) requires `rustc >= 1.88` |
+| `RUSTSEC-2026-0174` | `http-types` (via `wiremock`) | Dev-dependency only (HTTP mocking in `milona-ingest`'s tests), never shipped |
+| `RUSTSEC-2025-0057` | `fxhash` (via `wiremock`) | Dev-dependency only, never shipped |
+| `RUSTSEC-2024-0384` | `instant` (via `wiremock`) | Dev-dependency only, never shipped |
+| `RUSTSEC-2026-0097` | `rand 0.7.3` (via `wiremock`) | Dev-dependency only, never shipped |
+
+The two real vulnerabilities are the same MSRV wall as `genai`/`fastembed-rs`/`rmcp` — see
+[README.md's Known limitations](README.md#known-limitations). Raising the workspace's
+`rust-version` past 1.87 unblocks all of them together; re-run `cargo update` on the
+affected crates and delete the corresponding ignores from both files at that point.
+
 ### What `deny.toml` enforces
 
 - **Advisories**: any RUSTSEC advisory (vulnerability/unmaintained/unsound/notice) fails
-  `cargo deny check` unless explicitly (and temporarily, with an expiry) ignored.
-- **Licenses**: an allow-list of permissive licenses only (MIT, Apache-2.0, BSD, ISC,
-  Unicode-3.0/DFS-2016, Zlib, CC0-1.0, MIT-0) per ROADMAP.md's licensing note — copyleft
-  licenses (GPL/AGPL/LGPL/MPL family) are intentionally excluded, so any such dependency
-  (direct or transitive) fails the build and forces an explicit compliance review.
+  `cargo deny check` unless explicitly (and temporarily, with a review-by date noted in the
+  `reason` string — this `cargo-deny` version's schema has no separate `expires` key) ignored.
+- **Licenses**: an allow-list of permissive licenses (MIT, Apache-2.0, BSD, ISC,
+  Unicode-3.0/DFS-2016, Zlib, CC0-1.0, MIT-0, CDLA-Permissive-2.0, MPL-2.0) per ROADMAP.md's
+  licensing note — copyleft with a *distribution/network-service* trigger (GPL/AGPL/LGPL
+  family) is intentionally excluded, so any such dependency (direct or transitive) fails the
+  build and forces an explicit compliance review. MPL-2.0 was reviewed and added
+  2026-07-13: it's file-level copyleft that only affects modifications to the MPL-licensed
+  files themselves, not code that merely uses the library (`scraper`'s CSS-parsing deps, used
+  unmodified in `milona-ingest`). CDLA-Permissive-2.0 is a genuinely permissive data license
+  used by `webpki-root-certs` (transitive via `reqwest`'s TLS stack), just outside the
+  original MIT/Apache/BSD-family list. If a *new* copyleft dependency shows up, don't assume
+  it's the same case — review it on its own terms before adding it here.
 - **Bans**: flags duplicate major versions of the same crate (bloat/audit-surface) as
   warnings, and denies a couple of explicitly unwanted crates (e.g. `openssl-sys`, since the
   workspace's recommended stack standardizes on `rustls`).
@@ -120,6 +161,20 @@ ROADMAP.md's note that the Rust OpenTelemetry tracing API/SDK is still Beta upst
 the `TODO(otel)` comments in that file for what a real integration requires. Default builds
 (`cargo build`, no extra flags) are unaffected — the feature adds zero dependencies unless
 explicitly enabled.
+
+## Branch and tag protection
+
+`main` and all tags (`refs/tags/*`) are protected by repository rulesets (GitHub → repo →
+Rules), enforced for everyone including admins — there is no bypass:
+
+- **`main`**: no force-pushes, no deletion. Merging requires a pull request with at least
+  one approval (stale approvals are dismissed on new pushes) and all three CI jobs green and
+  up to date with `main`: `fmt + clippy`, `test (workspace + MongoDB replica set)`,
+  `cargo audit + cargo deny`.
+- **Tags**: no deletion, no force-updates of any tag once created.
+
+In practice: always work on a branch and open a PR — a direct `git push origin main` will
+be rejected.
 
 ## Scope notes for this workspace
 
