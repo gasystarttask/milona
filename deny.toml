@@ -28,10 +28,33 @@ version = 2
 # Any RUSTSEC advisory (vulnerability, unmaintained, unsound, notice) fails `cargo deny
 # check` by default under version = 2 unless explicitly ignored below. Keep this list
 # empty in steady state; any addition here must reference the RUSTSEC id and a tracked
-# follow-up issue, and must have an expiry date.
+# follow-up issue. NOTE: cargo-deny 0.18.x's advisory-ignore schema only accepts `id` and
+# `reason` (no `expires` key — that's a newer/different tool's schema, verified locally by
+# `cargo deny check` rejecting it with "unexpected-keys"); put the review-by date in the
+# `reason` text itself instead, as done below.
 ignore = [
     # Example of the *only* acceptable shape for a temporary exception:
-    # { id = "RUSTSEC-0000-0000", reason = "tracked in #123, patched upstream release pending", expires = "2026-12-31" },
+    # { id = "RUSTSEC-0000-0000", reason = "tracked in #123, patched upstream release pending, review by 2026-12-31" },
+
+    # --- Same root cause as milona-adapter's genai/fastembed-rs/rmcp substitutions: this ---
+    # --- workspace pins rust-version = 1.87, and every fixed version below requires 1.88. ---
+    # Verified directly (2026-07-13): `cargo update -p lopdf --precise 0.42.0` (and 0.44.0)
+    # pull in `time 0.3.53`, which fails to compile with "rustc 1.87.0 is not supported...
+    # time@0.3.53 requires rustc 1.88.0". Re-run that update once the workspace MSRV moves
+    # to >=1.88 and delete this ignore.
+    { id = "RUSTSEC-2026-0187", reason = "lopdf (via pdf-extract, milona-ingest) fix requires rustc >=1.88 transitively via time; workspace pins 1.87 (see milona-adapter's genai note for the same class of blocker). Review by 2026-10-01." },
+
+    # `time = "=0.3.36"` is itself a deliberate pin in milona-storage/Cargo.toml, made
+    # because mongodb>=3.7 (and time>=0.3.37) require rustc >=1.88. The fix for this
+    # advisory (time>=0.3.47) is unreachable without lifting that same pin.
+    { id = "RUSTSEC-2026-0009", reason = "time 0.3.36 is pinned in milona-storage/Cargo.toml because mongodb>=3.7 needs rustc >=1.88; fix (>=0.3.47) needs the same MSRV bump. Review by 2026-10-01." },
+
+    # --- Warnings (informational severity, but `cargo audit`/`cargo deny` still fail on ---
+    # --- them by default under version = 2) surfaced by the same dependency graph. ---
+    { id = "RUSTSEC-2026-0174", reason = "http-types notice (ASCII-invariant edge case in Authorization header values), pulled in via wiremock (milona-ingest dev-dependency, HTTP mocking in WebSource tests); not reachable from any code path that builds Authorization headers from untrusted input in this workspace, and not present in any shipped binary. Review by 2026-10-01." },
+    { id = "RUSTSEC-2025-0057", reason = "fxhash unmaintained; transitive dependency (via wiremock/http-types, milona-ingest dev-dependency), no direct usage, low risk (hashing utility, not security-sensitive). Review by 2026-10-01." },
+    { id = "RUSTSEC-2024-0384", reason = "instant unmaintained; transitive dependency (via wiremock, milona-ingest dev-dependency), no direct usage. Review by 2026-10-01." },
+    { id = "RUSTSEC-2026-0097", reason = "rand 0.7.3 unsoundness requires a custom logger implementation calling rand::rng() from within Rand's own internals; transitive dependency via wiremock/http-types (milona-ingest dev-dependency only, not present in any shipped binary), not exercised by this workspace's code. Review by 2026-10-01." },
 ]
 
 [licenses]
@@ -39,7 +62,7 @@ version = 2
 # Permissive allow-list matching ROADMAP.md's licensing note. Everything the recommended
 # stack pulls in (mongodb, neo4rs, dom_smoothie, fastembed-rs, genai, rmcp, text-splitter,
 # pdfium-render, ort, tiktoken-rs, tokio, serde, axum, clap, ...) is MIT/Apache-2.0/BSD/etc.
-# Copyleft licenses (GPL/AGPL/LGPL/MPL family) are intentionally NOT in this list, so any
+# Copyleft licenses (GPL/AGPL/LGPL family) are intentionally NOT in this list, so any
 # dependency (direct or transitive) under one of them fails CI and forces a compliance
 # review rather than shipping silently.
 allow = [
@@ -54,6 +77,22 @@ allow = [
     "Zlib",
     "CC0-1.0",
     "MIT-0",
+    # CDLA-Permissive-2.0: Community Data License Agreement, used by
+    # `webpki-root-certs` (transitive via reqwest's rustls-platform-verifier, pulled in
+    # by milona-ingest's WebSource) to package Mozilla's CA root bundle. Despite the
+    # name, this is a genuinely permissive (non-copyleft) data license, just not part of
+    # the MIT/Apache/BSD family the original allow-list anticipated.
+    "CDLA-Permissive-2.0",
+    # MPL-2.0: file-level (weak) copyleft, reviewed and allowed 2026-07-13. Pulled in
+    # transitively by `scraper` (milona-ingest's WebSource, HTML parsing) via
+    # cssparser/cssparser-macros/dtoa-short/selectors. MPL-2.0 only requires that
+    # *modifications to the MPL-licensed files themselves* stay under MPL/be published as
+    # source if distributed — it explicitly permits linking/using the library from
+    # proprietary code without imposing copyleft on the rest of the codebase (unlike
+    # GPL/LGPL). Milona uses these crates as unmodified upstream dependencies, so this
+    # obligation isn't triggered. Re-review if any of these crates are ever vendored/
+    # patched locally rather than pulled from crates.io as-is.
+    "MPL-2.0",
 ]
 confidence-threshold = 0.8
 

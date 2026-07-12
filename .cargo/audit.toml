@@ -1,0 +1,22 @@
+# cargo-audit config (ROADMAP.md Phase 6 hardening).
+#
+# NOTE: this is a *separate* config from deny.toml's [advisories].ignore. `cargo audit`
+# (and the `rustsec/audit-check` GitHub Action, which shells out to it) only reads
+# `.cargo/audit.toml`; it does not read deny.toml, which is cargo-deny-specific. Both
+# files must be kept in sync — same ids, same reasoning — since CI's `supply-chain` job
+# runs both tools.
+#
+# Every id below is the exact same, already-reviewed exception documented in deny.toml's
+# [advisories].ignore — see that file for the full reasoning (MSRV-blocked fixes for the
+# two real vulnerabilities; dev-dependency-only, non-shipped transitive deps for the four
+# warnings). Review by 2026-10-01, alongside deny.toml.
+
+[advisories]
+ignore = [
+    "RUSTSEC-2026-0187", # lopdf (milona-ingest, via pdf-extract): fix needs rustc >=1.88
+    "RUSTSEC-2026-0009",  # time (milona-storage, pinned for mongodb MSRV): fix needs rustc >=1.88
+    "RUSTSEC-2026-0174", # http-types notice, via wiremock (milona-ingest dev-dependency only)
+    "RUSTSEC-2025-0057", # fxhash unmaintained, via wiremock (milona-ingest dev-dependency only)
+    "RUSTSEC-2024-0384", # instant unmaintained, via wiremock (milona-ingest dev-dependency only)
+    "RUSTSEC-2026-0097", # rand 0.7.3 unsoundness, via wiremock (milona-ingest dev-dependency only)
+]

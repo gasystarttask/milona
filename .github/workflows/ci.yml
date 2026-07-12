@@ -101,6 +101,15 @@ jobs:
   supply-chain:
     name: cargo audit + cargo deny
     runs-on: ubuntu-latest
+    # rustsec/audit-check publishes its results as a GitHub Check Run, which needs
+    # `checks: write` on the job's token — the default `GITHUB_TOKEN` permissions
+    # (read-only on public repos, or org-restricted) don't include it, which is what
+    # produced "Resource not accessible by integration" here. `contents: read` is the
+    # baseline actions/checkout needs and isn't implied once `permissions:` is set
+    # explicitly (GitHub drops every unlisted scope to `none`).
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@v4
 
